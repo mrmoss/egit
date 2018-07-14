@@ -11,10 +11,46 @@
 import csv
 import errno
 import getpass
+import glob
 import hashlib
 import os
 import sys
 from Crypto.Cipher import AES
+
+#Matches .git*
+def is_gitfile(path):
+	return os.path.basename(path).find('.git')==0
+
+#Only .gitignore
+def is_gitignore(path):
+	return os.path.basename(path)=='.gitignore'
+
+#Checks if path is in ignores (or is a child of one of them)
+def is_ignored(ignores,path):
+	if path in ignores:
+		return True
+	for ignore in ignores:
+		if path.find(ignore+os.sep)==0:
+			return True
+	return False
+
+#Read a .gitignore file
+def read_gitignore(path):
+	try:
+		return open(path,'r').read().split('\n')
+	except Exception:
+		raise Exception('Couldn\'t read .gitignore "'+path+'".')
+
+#Returns all files affected by a .gitignore file
+def glob_gitignore(root,path):
+	root=os.path.dirname(path)
+	files=[]
+	for line in read_gitignore(path):
+		for file in glob.glob(os.path.join(root,line)):
+			file=os.path.normpath(file)
+			if file!=root and file not in files:
+				files.append(file)
+	return files
 
 #Finds the closest child .git folder and returns its parent
 def find_git_root():
@@ -205,7 +241,23 @@ def confirm(prompt,prefix=''):
 
 #Recursively encrypt files in decrypt_dir into encrypt_dir (won't overwrite with confirmation)
 def encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
+	ignores=[]
 	fails=[]
+
+	#Get files to ignore via .gitignore files
+	for root,subdirs,files in os.walk(decrypt_dir):
+		for file in files:
+			try:
+				path=os.path.join(os.path.join(root,file))
+				if isfile(path) and is_gitignore(path):
+					ignores+=glob_gitignore(decrypt_dir,path)
+			except Exception as error:
+				error='Error handling "'+path+'")'+':\n\t'+str(error)
+				fails.append((path,error))
+				print_red(error)
+				return
+
+	#Handle files
 	for root,subdirs,files in os.walk(decrypt_dir):
 		for file in files:
 			decrypt_path=os.path.join(os.path.join(root,file))
@@ -221,10 +273,15 @@ def encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
 				print_orange('Skipping (not a regular file)')
 				continue
 
+			#File matches a .gitignore file - skip
+			if is_ignored(ignores,decrypt_path):
+				print_orange('Skipping (matches a .gitignore file)')
+				continue
+
 			#Check creation and modification times (faster)
 			try:
 				stats=os.stat(decrypt_path)
-				if check_egit_lists(lists,decrypt_path,stats.st_mtime):
+				if isfile(encrypt_path) and check_egit_lists(lists,decrypt_path,stats.st_mtime):
 					print_orange('Skipping (no stat changes)')
 					continue
 			except Exception as error:
@@ -247,7 +304,7 @@ def encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				if isfile(encrypt_path):
 					wdata=read_file(encrypt_path)
-					if os.path.basename(decrypt_path).find('.git')!=0:
+					if not is_gitfile(decrypt_path):
 						wdata=decrypt_bytes(key,wdata)
 					different=sha256(data)!=sha256(wdata)
 					if not different:
@@ -276,7 +333,7 @@ def encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 			#Encrypt source
 			try:
-				if os.path.basename(decrypt_path).find('.git')!=0:
+				if not is_gitfile(decrypt_path):
 					data=encrypt_bytes(key,data)
 			except Exception as error:
 				error='FAILED (error encrypting)'+':\n\t'+str(error)
@@ -349,7 +406,7 @@ def decrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
 			#Check creation and modification times (faster)
 			try:
 				stats=os.stat(encrypt_path)
-				if check_egit_lists(lists,encrypt_path,stats.st_mtime):
+				if isfile(decrypt_path) and check_egit_lists(lists,encrypt_path,stats.st_mtime):
 					print_orange('Skipping (no stat changes)')
 					continue
 			except Exception as error:
@@ -369,7 +426,7 @@ def decrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 			#Decrypt source
 			try:
-				if os.path.basename(encrypt_path).find('.git')!=0:
+				if not is_gitfile(encrypt_path):
 					data=decrypt_bytes(key,data)
 			except Exception as error:
 				error='FAILED (error decrypting)'+':\n\t'+str(error)
