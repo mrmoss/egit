@@ -1,0 +1,495 @@
+#!/usr/bin/env python3
+#	macOS:
+#		brew install gmp
+#		sudo env "CFLAGS=-I/usr/local/include -L/usr/local/lib" pip3 install pycrypto
+#	Linux:
+#		sudo PACKAGE_MANAGER install python3-dev
+#		sudo pip3 install pycrypto
+#	Testing:
+#		./egit.py encrypt
+#		./egit.py decrypt
+import csv
+import errno
+import getpass
+import hashlib
+import os
+import sys
+from Crypto.Cipher import AES
+
+#Finds the closest child .git folder and returns its parent
+def find_git_root():
+	try:
+		git_root=os.path.realpath(os.getcwd())
+		while True:
+			if os.path.isdir(os.path.join(git_root,'.git')):
+				return git_root
+			if git_root=='/':
+				raise Exception('')
+			git_root=os.path.dirname(git_root)
+	except Exception:
+		raise Exception('Couldn\'t find git root - is this in a git repo?')
+
+#Print fancy colors on ANSI terminals (default on pretty much everything except Windows...)
+def print_red(data):
+	print('\033[91m'+str(data)+'\033[0m')
+def print_green(data):
+	print('\033[92m'+str(data)+'\033[0m')
+def print_orange(data):
+	print('\033[93m'+str(data)+'\033[0m')
+
+#Read egit lists file
+def read_egit_lists(fname):
+	lists={}
+
+	#Doesn't exist, return
+	try:
+		if not os.path.exists(fname):
+			return lists
+	except Exception:
+		raise Exception('Error reading stats "'+fname+'".')
+
+	#Not a file, raise Exception
+	if not isfile(fname):
+		raise Exception('"'+fname+'" is not a regular file.')
+
+	#Open file
+	csvfile=None
+	try:
+		csvfile=open(fname,'r')
+	except Exception:
+		raise Exception('Could not open "'+fname+'" for reading.')
+
+	#Parse csv
+	csvreader=None
+	try:
+		csvreader=csv.reader(csvfile)
+	except Exception:
+		raise Exception('"'+fname+'" is not a csv file.')
+
+	#Get entries
+	lineno=0
+	for row in csvreader:
+		lineno+=1
+
+		#Rows are: modify_time,file_path
+		if len(row)!=0 and len(row)!=2:
+			raise Exception('Invalid number of elements on line '+str(lineno)+' of "'+fname+'".')
+
+		#Empty line...skip...
+		if len(row)==0:
+			continue
+
+		#Check if path exists (if it doesn't, we don't want to keep it in db)
+		if not isfile(row[1]):
+			continue
+
+		#Parse modify time entry
+		mtime=0.0
+		try:
+			mtime=float(row[0])
+		except Exception:
+			raise Exception('Invalid time entry on line '+str(lineno)+' of "'+fname+'".')
+
+		#Add entry
+		lists[row[1]]=mtime
+
+	#Return a map of fpaths to times
+	return lists
+
+#Read egit lists file
+def write_egit_lists(fname,lists):
+
+	#Not a file, raise Exception
+	try:
+		if os.path.exists(fname) and not isfile(fname):
+			return lists
+	except Exception:
+		raise Exception('"'+fname+'" is not a regular file.')
+
+	#Open file
+	csvfile=None
+	try:
+		csvfile=open(fname,'w')
+	except Exception:
+		raise Exception('Could not open "'+fname+'" for writing.')
+
+	#Write csv
+	try:
+		csvwriter=csv.writer(csvfile)
+		for key in lists:
+			csvwriter.writerow([lists[key],key])
+	except Exception:
+		raise Exception('Error writing to "'+fname+'".')
+
+#Check egit lists for file change
+def check_egit_lists(lists,path,mtime):
+	return path in lists and lists[path]==mtime
+
+#Sha256 wrapper...
+def sha256(data):
+	return hashlib.sha256(data).digest()
+
+#https://stackoverflow.com/questions/12524994/encrypt-decrypt-using-pycrypto-aes-256
+class AES256Cipher(object):
+	def __init__(self,key):
+		self.bs=32
+		self.key=hashlib.sha256(key.encode()).digest()
+
+	#Encrypt bytes into bytes that look like:
+	#	iv_16b | sha256(key)_32b | data
+	#	iv is the first 16 bytes of the sha256(data)
+	#		Note: This might seem insecure...
+	#			  But it with git checking in mind, this means that data that's encrypted will have the same hash....
+	def encrypt(self,data):
+		iv=sha256(data)[:AES.block_size]
+		data=self.pad_m(self.key+data)
+		cipher=AES.new(self.key,AES.MODE_CBC,iv)
+		return iv+cipher.encrypt(data)
+
+	#Decrypt bytes (see desc of encrypt) into bytes (just data)
+	#	Will through if keys don't match
+	def decrypt(self,data):
+		iv=data[:AES.block_size]
+		cipher=AES.new(self.key,AES.MODE_CBC,iv)
+		data=cipher.decrypt(data[AES.block_size:])
+		data=self.unpad_m(data)
+		if data[:len(self.key)]!=self.key:
+			raise Exception('Bad Decrypt')
+		return data[len(self.key):]
+
+	def pad_m(self,data):
+		pad_len=AES.block_size-(len(data)%AES.block_size)
+		return data+bytes([pad_len])*pad_len
+
+	def unpad_m(self,data):
+		pad_len=int(data[-1])
+		return data[:len(data)-pad_len]
+
+#Encrypts bytes with key
+def encrypt_bytes(key,data):
+	return AES256Cipher(key=key).encrypt(data)
+
+#Decrypts bytes with key
+def decrypt_bytes(key,data):
+	return AES256Cipher(key=key).decrypt(data)
+
+#Checks if path is a file (an actual regular file, not a pipe...come on python...)
+def isfile(path):
+	return os.path.isfile(path) and not os.path.islink(path)
+
+#Read a binary file (why isn't this the default python?!)
+def read_file(path):
+	return open(path,'rb').read()
+
+#Write a binary file (why isn't this the default python?!)
+def write_file(path,data):
+	open(path,'wb').write(data)
+
+#Remove a file (ignores does not exist error)
+def remove_file(path):
+	try:
+		os.remove(path)
+	except OSError as error:
+		if error.errno!=errno.ENOENT:
+			raise
+
+#Prompt user for yes/no (prefix is added to prompts...)
+def confirm(prompt,prefix=''):
+	while True:
+		ans=input('\033[93m'+prefix+prompt+'\033[0m').strip()
+		if ans=='yes':
+			return True
+		if ans=='no':
+			return False
+		prompt='Type "yes" or "no": '
+
+#Recursively encrypt files in decrypt_dir into encrypt_dir (won't overwrite with confirmation)
+def encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
+	fails=[]
+	for root,subdirs,files in os.walk(decrypt_dir):
+		for file in files:
+			decrypt_path=os.path.join(os.path.join(root,file))
+			sys.stdout.write('"'+decrypt_path+'"...')
+			sys.stdout.flush()
+
+			encrypt_path=decrypt_path.replace(decrypt_dir,encrypt_dir,1)
+			data=None
+			ignore_success=False
+
+			#Source isn't a regular file, skip it
+			if not isfile(decrypt_path):
+				print_orange('Skipping (not a regular file)')
+				continue
+
+			#Check creation and modification times (faster)
+			try:
+				stats=os.stat(decrypt_path)
+				if check_egit_lists(lists,decrypt_path,stats.st_mtime):
+					print_orange('Skipping (no stat changes)')
+					continue
+			except Exception as error:
+				error='FAILED (error checking stats)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#Read source file
+			try:
+				data=read_file(decrypt_path)
+			except Exception as error:
+				error='FAILED (error reading)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#Check for differences
+			different=False
+			try:
+				if isfile(encrypt_path):
+					wdata=read_file(encrypt_path)
+					if os.path.basename(decrypt_path).find('.git')!=0:
+						wdata=decrypt_bytes(key,wdata)
+					different=sha256(data)!=sha256(wdata)
+					if not different:
+						print_orange('Skipping (no changes)')
+						continue
+			except Exception as error:
+				error='FAILED (error checking for changes)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#Check if destination exists and that it isn't different than source
+			try:
+				if isfile(encrypt_path) and different:
+					print_red('exists')
+					if not confirm('Destination file exists and is different, overwrite? (yes/no): ','\t'):
+						print_orange('\tSkipped "'+encrypt_path+'"')
+						continue
+					print_orange('\tOverwrote "'+encrypt_path+'"')
+					ignore_success=True
+			except Exception as error:
+				error='FAILED (error reading encrypted copy)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#Encrypt source
+			try:
+				if os.path.basename(decrypt_path).find('.git')!=0:
+					data=encrypt_bytes(key,data)
+			except Exception as error:
+				error='FAILED (error encrypting)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#Remove destination file if exists
+			try:
+				remove_file(encrypt_path)
+			except Exception as error:
+				error='FAILED (error deleting encrypted copy)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#Make destination's parent
+			try:
+				os.makedirs(os.path.dirname(encrypt_path),exist_ok=True)
+			except Exception as error:
+				error='FAILED (error making parents)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#Write destination file
+			try:
+				write_file(encrypt_path,data)
+				lists[encrypt_path]=os.stat(encrypt_path).st_mtime
+			except Exception as error:
+				error='FAILED (error writing)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#All done
+			if not ignore_success:
+				print_green('success')
+
+	#Update egit lists
+	write_egit_lists(lists_path,lists)
+
+	#Print Fails
+	if len(fails)>0:
+		print_red(str(len(fails))+' Fails:')
+		for fail in fails:
+			for line in ('"'+fail[0]+'" - '+fail[1]).split('\n'):
+				print_red('\t'+line)
+	else:
+		print_green('0 Fails')
+
+#Recursively decrypt files in encrypt_dir into decrypt_dir (won't overwrite with confirmation)
+def decrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
+	fails=[]
+	for root,subdirs,files in os.walk(encrypt_dir):
+		for file in files:
+			encrypt_path=os.path.join(os.path.join(root,file))
+			sys.stdout.write('"'+encrypt_path+'"...')
+			sys.stdout.flush()
+
+			decrypt_path=encrypt_path.replace(encrypt_dir,decrypt_dir,1)
+			data=None
+			ignore_success=False
+
+			#Source isn't a regular file, skip it
+			if not isfile(encrypt_path):
+				print_orange('Skipping (not a regular file)')
+				continue
+
+			#Check creation and modification times (faster)
+			try:
+				stats=os.stat(encrypt_path)
+				if check_egit_lists(lists,encrypt_path,stats.st_mtime):
+					print_orange('Skipping (no stat changes)')
+					continue
+			except Exception as error:
+				error='FAILED (error checking stats)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#Read source file
+			try:
+				data=read_file(encrypt_path)
+			except Exception as error:
+				error='FAILED (error reading)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#Decrypt source
+			try:
+				if os.path.basename(encrypt_path).find('.git')!=0:
+					data=decrypt_bytes(key,data)
+			except Exception as error:
+				error='FAILED (error decrypting)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#Check for differences
+			different=False
+			try:
+				if isfile(decrypt_path):
+					different=sha256(data)!=sha256(read_file(decrypt_path))
+					if not different:
+						print_orange('Skipping (no changes)')
+						continue
+			except Exception as error:
+				error='FAILED (error checking for changes)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#Check if destination exists and that it isn't different than source
+			try:
+				if isfile(decrypt_path) and different:
+					print_red('exists')
+					if not confirm('Destination file exists and is different, overwrite? (yes/no): ','\t'):
+						print_orange('\tSkipped "'+decrypt_path+'"')
+						continue
+					print_orange('\tOverwrote "'+decrypt_path+'"')
+					ignore_success=True
+			except Exception as error:
+				error='FAILED (error reading decrypted copy)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#Remove destination file if exists
+			try:
+				remove_file(decrypt_path)
+			except Exception as error:
+				error='FAILED (error deleting decrypted copy)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#Make destination's parent
+			try:
+				os.makedirs(os.path.dirname(decrypt_path),exist_ok=True)
+			except Exception as error:
+				error='FAILED (error making parents)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#Write destination file
+			try:
+				write_file(decrypt_path,data)
+				lists[decrypt_path]=os.stat(decrypt_path).st_mtime
+			except Exception as error:
+				error='FAILED (error writing)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#All done
+			if not ignore_success:
+				print_green('success')
+
+	#Update egit lists
+	write_egit_lists(lists_path,lists)
+
+	#Print Fails
+	if len(fails)>0:
+		print_red(str(len(fails))+' Fails:')
+		for fail in fails:
+			for line in ('"'+fail[0]+'" - '+fail[1]).split('\n'):
+				print_red('\t'+line)
+	else:
+		print_green('0 Fails')
+
+if __name__=='__main__':
+	try:
+		#Validate cli args
+		if len(sys.argv)!=2:
+			print('Usage: '+sys.argv[0]+' encrypt | decrypt')
+			exit(1)
+
+		#Validate mode
+		mode=sys.argv[1]
+		if mode!='encrypt' and mode!='decrypt':
+			raise Exception('Unknown mode.')
+
+		#Validate egit lists file
+		git_root=find_git_root()
+		lists_path=os.path.join(git_root,'.egit')
+		lists=read_egit_lists(lists_path)
+
+		#Check directories
+		decrypt_dir=os.path.join(git_root,'decrypted')
+		encrypt_dir=os.path.join(git_root,'encrypted')
+		if not os.path.isdir(decrypt_dir):
+			raise Exception('"'+decrypt_dir+'" is not a directory.')
+		if not os.path.isdir(encrypt_dir) and os.path.exists(encrypt_dir):
+			raise Exception('"'+encrypt_dir+'" is not a directory.')
+
+		#Get password
+		key=getpass.getpass(mode.capitalize()+' Password: ')
+
+		#Do encrypt/decrypt
+		if mode=='encrypt':
+			encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir)
+		elif mode=='decrypt':
+			decrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir)
+		exit(0)
+
+	#Print errors
+	except Exception as error:
+		print_red(error)
+		exit(1)
+
+	#Kill
+	except KeyboardInterrupt:
+		exit(1)
