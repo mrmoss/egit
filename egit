@@ -17,6 +17,21 @@ import hashlib
 import os
 import sys
 from Crypto.Cipher import AES
+from Crypto import Random
+
+#Create random encrypt file
+def encrypt_randfile(key,filename):
+	try:
+		write_file(filename,encrypt_bytes(key,Random.get_random_bytes(32)))
+	except Exception:
+		raise Exception('Error encrypting "'+os.path.relpath(filename)+'".')
+
+#Create random decrypt file
+def decrypt_randfile(key,filename):
+	try:
+		decrypt_bytes(key,read_file(filename))
+	except Exception:
+		raise Exception('Invalid password.')
 
 #Matches .git*
 def is_gitfile(path):
@@ -719,6 +734,17 @@ if __name__=='__main__':
 
 		#Get password
 		key=getpass.getpass('Password: ')
+
+		#Randfile doesn't exist, confirm password
+		randfilename=os.path.join(git_root,'.egitinit')
+		if not isfile(randfilename):
+			confirm_key=getpass.getpass('Confirm Password: ')
+			if key!=confirm_key:
+				raise Exception('Passwords do not match.')
+			encrypt_randfile(key,randfilename)
+
+		#Check decryption key
+		decrypt_randfile(key,randfilename)
 
 		#Do encrypt/decrypt
 		if mode=='encrypt':
