@@ -6,8 +6,9 @@
 #		sudo PACKAGE_MANAGER install python3-dev
 #		sudo pip3 install pycrypto
 #	Testing:
-#		./egit.py encrypt
-#		./egit.py decrypt
+#		./egit encrypt
+#		./egit decrypt
+#		./egit status
 import csv
 import errno
 import getpass
@@ -240,6 +241,170 @@ def confirm(prompt,prefix=''):
 			return False
 		prompt='Type "yes" or "no": '
 
+#Recursively find differences in decrypt_dir and encrypt_dir
+def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
+	ignores=[]
+	fails=[]
+	new_files=[]
+	del_files=[]
+	diff_files=[]
+
+	#Get files to ignore via .gitignore files
+	for root,subdirs,files in os.walk(decrypt_dir):
+		for file in files:
+			try:
+				path=os.path.join(os.path.join(root,file))
+				if isfile(path) and is_gitignore(path):
+					ignores+=glob_gitignore(decrypt_dir,path)
+			except Exception as error:
+				error='Error handling "'+path+'")'+':\n\t'+str(error)
+				fails.append((path,error))
+				print_red(error)
+				return
+
+	#Handle decrypted files
+	for root,subdirs,files in os.walk(decrypt_dir):
+		for file in files:
+			decrypt_path=os.path.join(os.path.join(root,file))
+			encrypt_path=decrypt_path.replace(decrypt_dir,encrypt_dir,1)
+
+			#Source isn't a regular file, skip it
+			if not isfile(decrypt_path):
+				continue
+
+			#File matches a .gitignore file - skip
+			if is_ignored(ignores,decrypt_path):
+				continue
+
+			#Check creation and modification times (faster)
+			try:
+				stats=os.stat(decrypt_path)
+				if not isfile(encrypt_path):
+					new_files.append(decrypt_path)
+					continue
+				if check_egit_lists(lists,decrypt_path,stats.st_mtime):
+					continue
+			except Exception as error:
+				error='FAILED (error checking stats)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#Read source file
+			try:
+				data=read_file(decrypt_path)
+			except Exception as error:
+				error='FAILED (error reading)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#Encrypt source
+			try:
+				if not is_gitfile(decrypt_path):
+					data=encrypt_bytes(key,data)
+			except Exception as error:
+				error='FAILED (error encrypting)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+			#Check for differences
+			try:
+				if isfile(encrypt_path):
+					if sha256(data)==sha256(read_file(encrypt_path)):
+						lists[decrypt_path]=os.stat(decrypt_path).st_mtime
+						lists[encrypt_path]=os.stat(encrypt_path).st_mtime
+						continue
+					diff_files.append(decrypt_path)
+					continue
+			except Exception as error:
+				error='FAILED (error checking for changes)'+':\n\t'+str(error)
+				fails.append((decrypt_path,error))
+				print_red(error)
+				continue
+
+	#Handle encrypted files
+	for root,subdirs,files in os.walk(encrypt_dir):
+		for file in files:
+			encrypt_path=os.path.join(os.path.join(root,file))
+			decrypt_path=encrypt_path.replace(encrypt_dir,decrypt_dir,1)
+
+			#Source isn't a regular file, skip it
+			if not isfile(encrypt_path):
+				continue
+
+			#File matches a .gitignore file - skip
+			if is_ignored(ignores,encrypt_path):
+				continue
+
+			#Check creation and modification times (faster)
+			try:
+				stats=os.stat(encrypt_path)
+				if not isfile(decrypt_path):
+					del_files.append(decrypt_path)
+					continue
+				if check_egit_lists(lists,encrypt_path,stats.st_mtime):
+					continue
+			except Exception as error:
+				error='FAILED (error checking stats)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#Read source file
+			try:
+				data=read_file(encrypt_path)
+			except Exception as error:
+				error='FAILED (error reading)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#Decrypt source
+			try:
+				if not is_gitfile(encrypt_path):
+					data=decrypt_bytes(key,data)
+			except Exception as error:
+				error='FAILED (error decrypting)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+			#Check for differences
+			try:
+				if isfile(decrypt_path):
+					if sha256(data)==sha256(read_file(decrypt_path)):
+						lists[decrypt_path]=os.stat(decrypt_path).st_mtime
+						lists[encrypt_path]=os.stat(encrypt_path).st_mtime
+						continue
+					diff_files.append(decrypt_path)
+					continue
+			except Exception as error:
+				error='FAILED (error checking for changes)'+':\n\t'+str(error)
+				fails.append((encrypt_path,error))
+				print_red(error)
+				continue
+
+	#Update egit lists
+	write_egit_lists(git_root,lists_path,lists)
+
+	#Print Stats
+	print('')
+	print(str(len(new_files))+' New Files')
+	for file in new_files:
+		print_green('\t'+file)
+	print(str(len(del_files))+' Deleted Files')
+	for file in del_files:
+		print_red('\t'+file)
+	print(str(len(diff_files))+' Different Files')
+	for file in diff_files:
+		print_orange('\t'+file)
+	print(str(len(fails))+' Fails')
+	for fail in fails:
+		for line in ('"'+fail[0]+'" - '+fail[1]).split('\n'):
+			print_red('\t'+line)
+
 #Recursively encrypt files in decrypt_dir into encrypt_dir (won't overwrite with confirmation)
 def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	num_encrypted=0
@@ -389,13 +554,10 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	print_orange(str(num_skipped)+' Skipped')
 
 	#Print Fails
-	if len(fails)>0:
-		print_red(str(len(fails))+' Fails:')
-		for fail in fails:
-			for line in ('"'+fail[0]+'" - '+fail[1]).split('\n'):
-				print_red('\t'+line)
-	else:
-		print_red('0 Fails')
+	print_red(str(len(fails))+' Fails')
+	for fail in fails:
+		for line in ('"'+fail[0]+'" - '+fail[1]).split('\n'):
+			print_red('\t'+line)
 
 #Recursively decrypt files in encrypt_dir into decrypt_dir (won't overwrite with confirmation)
 def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
@@ -504,6 +666,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				write_file(decrypt_path,data)
 				lists[decrypt_path]=os.stat(decrypt_path).st_mtime
+				lists[encrypt_path]=os.stat(encrypt_path).st_mtime
 			except Exception as error:
 				error='FAILED (error writing)'+':\n\t'+str(error)
 				fails.append((encrypt_path,error))
@@ -524,13 +687,10 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	print_orange(str(num_skipped)+' Skipped')
 
 	#Print Fails
-	if len(fails)>0:
-		print_red(str(len(fails))+' Fails:')
-		for fail in fails:
-			for line in ('"'+fail[0]+'" - '+fail[1]).split('\n'):
-				print_red('\t'+line)
-	else:
-		print_red('0 Fails')
+	print_red(str(len(fails))+' Fails')
+	for fail in fails:
+		for line in ('"'+fail[0]+'" - '+fail[1]).split('\n'):
+			print_red('\t'+line)
 
 if __name__=='__main__':
 	try:
@@ -541,7 +701,7 @@ if __name__=='__main__':
 
 		#Validate mode
 		mode=sys.argv[1]
-		if mode!='encrypt' and mode!='decrypt':
+		if mode!='encrypt' and mode!='decrypt' and mode!='status':
 			raise Exception('Unknown mode.')
 
 		#Validate egit lists file
@@ -558,13 +718,15 @@ if __name__=='__main__':
 			raise Exception('"'+encrypt_dir+'" is not a directory.')
 
 		#Get password
-		key=getpass.getpass(mode.capitalize()+' Password: ')
+		key=getpass.getpass('Password: ')
 
 		#Do encrypt/decrypt
 		if mode=='encrypt':
 			encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir)
 		elif mode=='decrypt':
 			decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir)
+		elif mode=='status':
+			status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir)
 		exit(0)
 
 	#Print errors
