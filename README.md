@@ -20,8 +20,7 @@ Known Issues:
 - Doesn't encrypt filenames...this is a major problem...just don't know how to fix it...easily...yet...
 - This essentially keeps two copies of a repo on a machine...one encrypted...one decrypted...
 - No auto-init process...
-- File syncing between encrypted and decrypted versions needs work...
-
+- First round of encryption/decryption is slow...don't this this can be fixed. After the first round, modifications are kept in a local flat-file database to speed things up.
 Dependencies:
 ```
 pycrypto
@@ -57,6 +56,12 @@ If you want to pull:
 git pull
 egit decrypt
 #Your files are now decrypted into /tmp/new_git/decrypted
+```
+
+If you want to see which files have been changed in the decrypted dir:
+```
+egit status
+#This will show new files, removed files, modified files, etc...
 ```
 
 Again, this will probably not go anywhere. The current state of what happens with personal data makes me have nightmares. I'd like to fix it, but it'll probably end with a couple large businesses having their noses into everything...lol...like I have anything they want...
