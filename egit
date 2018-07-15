@@ -393,16 +393,16 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	print('')
 	print(str(len(new_files))+' New Files')
 	for file in new_files:
-		print_green('\t'+file)
+		print_green('\t'+os.path.relpath(file))
 	print(str(len(del_files))+' Deleted Files')
 	for file in del_files:
-		print_red('\t'+file)
+		print_red('\t'+os.path.relpath(file))
 	print(str(len(diff_files))+' Different Files')
 	for file in diff_files:
-		print_orange('\t'+file)
+		print_orange('\t'+os.path.relpath(file))
 	print(str(len(fails))+' Fails')
 	for fail in fails:
-		for line in ('"'+fail[0]+'" - '+fail[1]).split('\n'):
+		for line in ('"'+os.path.relpath(fail[0])+'" - '+fail[1]).split('\n'):
 			print_red('\t'+line)
 
 #Recursively encrypt files in decrypt_dir into encrypt_dir (won't overwrite with confirmation)
@@ -429,7 +429,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	for root,subdirs,files in os.walk(decrypt_dir):
 		for file in files:
 			decrypt_path=os.path.join(os.path.join(root,file))
-			sys.stdout.write('"'+decrypt_path+'"...')
+			sys.stdout.write('"'+os.path.relpath(decrypt_path)+'"...')
 			sys.stdout.flush()
 
 			encrypt_path=decrypt_path.replace(decrypt_dir,encrypt_dir,1)
@@ -556,7 +556,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	#Print Fails
 	print_red(str(len(fails))+' Fails')
 	for fail in fails:
-		for line in ('"'+fail[0]+'" - '+fail[1]).split('\n'):
+		for line in ('"'+os.path.relpath(fail[0])+'" - '+fail[1]).split('\n'):
 			print_red('\t'+line)
 
 #Recursively decrypt files in encrypt_dir into decrypt_dir (won't overwrite with confirmation)
@@ -567,7 +567,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	for root,subdirs,files in os.walk(encrypt_dir):
 		for file in files:
 			encrypt_path=os.path.join(os.path.join(root,file))
-			sys.stdout.write('"'+encrypt_path+'"...')
+			sys.stdout.write('"'+os.path.relpath(encrypt_path)+'"...')
 			sys.stdout.flush()
 
 			decrypt_path=encrypt_path.replace(encrypt_dir,decrypt_dir,1)
@@ -689,7 +689,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	#Print Fails
 	print_red(str(len(fails))+' Fails')
 	for fail in fails:
-		for line in ('"'+fail[0]+'" - '+fail[1]).split('\n'):
+		for line in ('"'+os.path.relpath(fail[0])+'" - '+fail[1]).split('\n'):
 			print_red('\t'+line)
 
 if __name__=='__main__':
