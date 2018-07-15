@@ -74,7 +74,7 @@ def print_orange(data):
 	print('\033[93m'+str(data)+'\033[0m')
 
 #Read egit lists file
-def read_egit_lists(fname):
+def read_egit_lists(git_root,fname):
 	lists={}
 
 	#Doesn't exist, return
@@ -115,8 +115,11 @@ def read_egit_lists(fname):
 		if len(row)==0:
 			continue
 
+		#Get absolute path
+		abs_path=os.path.join(git_root,row[1])
+
 		#Check if path exists (if it doesn't, we don't want to keep it in db)
-		if not isfile(row[1]):
+		if not isfile(abs_path):
 			continue
 
 		#Parse modify time entry
@@ -127,19 +130,16 @@ def read_egit_lists(fname):
 			raise Exception('Invalid time entry on line '+str(lineno)+' of "'+fname+'".')
 
 		#Add entry
-		lists[row[1]]=mtime
+		lists[abs_path]=mtime
 
 	#Return a map of fpaths to times
 	return lists
 
 #Read egit lists file
-def write_egit_lists(fname,lists):
+def write_egit_lists(git_root,fname,lists):
 
 	#Not a file, raise Exception
-	try:
-		if os.path.exists(fname) and not isfile(fname):
-			return lists
-	except Exception:
+	if os.path.exists(fname) and not isfile(fname):
 		raise Exception('"'+fname+'" is not a regular file.')
 
 	#Open file
@@ -153,9 +153,10 @@ def write_egit_lists(fname,lists):
 	try:
 		csvwriter=csv.writer(csvfile)
 		for key in lists:
-			csvwriter.writerow([lists[key],key])
-	except Exception:
-		raise Exception('Error writing to "'+fname+'".')
+			rel_path=key.replace(os.path.normpath(git_root)+os.sep,'',1)
+			csvwriter.writerow([lists[key],rel_path])
+	except Exception as error:
+		raise Exception('Error writing to "'+fname+'":\n\t'+str(error))
 
 #Check egit lists for file change
 def check_egit_lists(lists,path,mtime):
@@ -240,7 +241,7 @@ def confirm(prompt,prefix=''):
 		prompt='Type "yes" or "no": '
 
 #Recursively encrypt files in decrypt_dir into encrypt_dir (won't overwrite with confirmation)
-def encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
+def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	ignores=[]
 	fails=[]
 
@@ -308,6 +309,8 @@ def encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
 						wdata=decrypt_bytes(key,wdata)
 					different=sha256(data)!=sha256(wdata)
 					if not different:
+						lists[decrypt_path]=os.stat(decrypt_path).st_mtime
+						lists[encrypt_path]=os.stat(encrypt_path).st_mtime
 						print_orange('Skipping (no changes)')
 						continue
 			except Exception as error:
@@ -374,7 +377,7 @@ def encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
 				print_green('success')
 
 	#Update egit lists
-	write_egit_lists(lists_path,lists)
+	write_egit_lists(git_root,lists_path,lists)
 
 	#Print Fails
 	if len(fails)>0:
@@ -386,7 +389,7 @@ def encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
 		print_green('0 Fails')
 
 #Recursively decrypt files in encrypt_dir into decrypt_dir (won't overwrite with confirmation)
-def decrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
+def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	fails=[]
 	for root,subdirs,files in os.walk(encrypt_dir):
 		for file in files:
@@ -440,6 +443,8 @@ def decrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
 				if isfile(decrypt_path):
 					different=sha256(data)!=sha256(read_file(decrypt_path))
 					if not different:
+						lists[decrypt_path]=os.stat(decrypt_path).st_mtime
+						lists[encrypt_path]=os.stat(encrypt_path).st_mtime
 						print_orange('Skipping (no changes)')
 						continue
 			except Exception as error:
@@ -496,7 +501,7 @@ def decrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir):
 				print_green('success')
 
 	#Update egit lists
-	write_egit_lists(lists_path,lists)
+	write_egit_lists(git_root,lists_path,lists)
 
 	#Print Fails
 	if len(fails)>0:
@@ -522,7 +527,7 @@ if __name__=='__main__':
 		#Validate egit lists file
 		git_root=find_git_root()
 		lists_path=os.path.join(git_root,'.egit')
-		lists=read_egit_lists(lists_path)
+		lists=read_egit_lists(git_root,lists_path)
 
 		#Check directories
 		decrypt_dir=os.path.join(git_root,'decrypted')
@@ -537,9 +542,9 @@ if __name__=='__main__':
 
 		#Do encrypt/decrypt
 		if mode=='encrypt':
-			encrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir)
+			encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir)
 		elif mode=='decrypt':
-			decrypt_files(lists_path,lists,key,decrypt_dir,encrypt_dir)
+			decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir)
 		exit(0)
 
 	#Print errors
