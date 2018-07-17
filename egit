@@ -444,9 +444,6 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	for root,subdirs,files in os.walk(decrypt_dir):
 		for file in files:
 			decrypt_path=os.path.join(os.path.join(root,file))
-			sys.stdout.write('"'+os.path.relpath(decrypt_path)+'"...')
-			sys.stdout.flush()
-
 			encrypt_path=decrypt_path.replace(decrypt_dir,encrypt_dir,1)
 			data=None
 			ignore_success=False
@@ -458,6 +455,10 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			#File matches a .gitignore file - skip
 			if is_ignored(ignores,decrypt_path):
 				continue
+
+			#Print filename
+			sys.stdout.write('"'+os.path.relpath(decrypt_path)+'"...')
+			sys.stdout.flush()
 
 			#Check creation and modification times (faster)
 			try:
@@ -582,12 +583,13 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	for root,subdirs,files in os.walk(encrypt_dir):
 		for file in files:
 			encrypt_path=os.path.join(os.path.join(root,file))
-			sys.stdout.write('"'+os.path.relpath(encrypt_path)+'"...')
-			sys.stdout.flush()
-
 			decrypt_path=encrypt_path.replace(encrypt_dir,decrypt_dir,1)
 			data=None
 			ignore_success=False
+
+			#Print filename
+			sys.stdout.write('"'+os.path.relpath(encrypt_path)+'"...')
+			sys.stdout.flush()
 
 			#Source isn't a regular file, skip it
 			if not isfile(encrypt_path):
