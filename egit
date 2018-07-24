@@ -53,20 +53,37 @@ def is_ignored(ignores,path):
 #Read a .gitignore file
 def read_gitignore(path):
 	try:
-		return open(path,'r').read().split('\n')
+		lines=open(path,'r').read().split('\n')
+		ignores=[]
+		for line in lines:
+			line=line.strip()
+			if len(line)==0 or line[0]=='#':
+				continue
+			ignores.append(line)
+		return ignores
 	except Exception:
 		raise Exception('Couldn\'t read .gitignore "'+path+'".')
 
 #Returns all files affected by a .gitignore file
-def glob_gitignore(root,path):
-	root=os.path.dirname(path)
+def glob_gitignore(ignore_parent_lines,global_root,path):
+	local_root=os.path.dirname(path)
 	files=[]
-	for line in read_gitignore(path):
-		for file in glob.glob(os.path.join(root,line)):
-			file=os.path.normpath(file)
-			if file!=root and file not in files:
-				files.append(file)
-	return files
+	lines=read_gitignore(path)
+	ignore_parent_lines[local_root]=lines
+
+	for key in ignore_parent_lines:
+		if key!=local_root and local_root.find(key)==0:
+			lines+=ignore_parent_lines[key]
+
+	for root,subdirs,ignore_this in os.walk(local_root):
+		for line in lines:
+			test=os.path.join(root,line)
+			for file in glob.glob(test):
+				file=os.path.normpath(file)
+				if file!=global_root and file not in files:
+					files.append(file)
+
+	return ignore_parent_lines,files
 
 #Finds the closest child .git folder and returns its parent
 def find_git_root():
@@ -258,6 +275,7 @@ def confirm(prompt,prefix=''):
 
 #Recursively find differences in decrypt_dir and encrypt_dir
 def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
+	ignore_parent_lines={}
 	ignores=[]
 	fails=[]
 	new_files=[]
@@ -270,7 +288,9 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				path=os.path.join(os.path.join(root,file))
 				if isfile(path) and is_gitignore(path):
-					ignores+=glob_gitignore(decrypt_dir,path)
+					ignore_parent_lines,new_ignores=glob_gitignore(ignore_parent_lines,decrypt_dir,path)
+					ignores+=new_ignores
+
 			except Exception as error:
 				error='Error handling "'+path+'")'+':\n\t'+str(error)
 				fails.append((path,error))
@@ -422,6 +442,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 #Recursively encrypt files in decrypt_dir into encrypt_dir (won't overwrite with confirmation)
 def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
+	ignore_parent_lines={}
 	num_encrypted=0
 	num_skipped=0
 	ignores=[]
@@ -433,7 +454,9 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				path=os.path.join(os.path.join(root,file))
 				if isfile(path) and is_gitignore(path):
-					ignores+=glob_gitignore(decrypt_dir,path)
+					ignore_parent_lines,new_ignores=glob_gitignore(ignore_parent_lines,decrypt_dir,path)
+					ignores+=new_ignores
+
 			except Exception as error:
 				error='Error handling "'+path+'")'+':\n\t'+str(error)
 				fails.append((path,error))
@@ -713,7 +736,7 @@ if __name__=='__main__':
 	try:
 		#Validate cli args
 		if len(sys.argv)!=2:
-			print('Usage: '+sys.argv[0]+' encrypt | decrypt')
+			print('Usage: '+sys.argv[0]+' encrypt | decrypt | status')
 			exit(1)
 
 		#Validate mode
