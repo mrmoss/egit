@@ -20,6 +20,9 @@ Known Issues:
 - This essentially keeps two copies of a repo on a machine...one encrypted...one decrypted...
 - No auto-init process...
 - First round of encryption/decryption is slow...don't think this can be fixed. After the first round, modification states are kept in a local flat-file database to speed things up.
+- Doesn't detect unused encrypted files (you have to remove the file in both decrypted and encrypted folders).
+- Doesn't keep file attributes (as this is technically giving away some information about your files).
+
 Dependencies:
 ```
 pycrypto

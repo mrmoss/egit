@@ -33,10 +33,6 @@ def decrypt_randfile(key,filename):
 	except Exception:
 		raise Exception('Invalid password.')
 
-#Matches .git*
-def is_gitfile(path):
-	return os.path.basename(path).find('.git')==0
-
 #Only .gitignore
 def is_gitignore(path):
 	return os.path.basename(path)=='.gitignore'
@@ -369,8 +365,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 			#Encrypt source
 			try:
-				if not is_gitfile(decrypt_path):
-					data=encrypt_bytes(key,data)
+				data=encrypt_bytes(key,data)
 			except Exception as error:
 				error='FAILED (error encrypting)'+':\n\t'+str(error)
 				fails.append((decrypt_path,error))
@@ -431,8 +426,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 			#Decrypt source
 			try:
-				if not is_gitfile(decrypt_path):
-					data=decrypt_bytes(key,data)
+				data=decrypt_bytes(key,data)
 			except Exception as error:
 				error='FAILED (error decrypting)'+':\n\t'+str(error)
 				fails.append((encrypt_path,error))
@@ -543,8 +537,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				if isfile(encrypt_path):
 					wdata=read_file(encrypt_path)
-					if not is_gitfile(decrypt_path):
-						wdata=decrypt_bytes(key,wdata)
+					wdata=decrypt_bytes(key,wdata)
 					different=sha256(data)!=sha256(wdata)
 					if not different:
 						lists[decrypt_path]=os.stat(decrypt_path).st_mtime
@@ -576,8 +569,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 			#Encrypt source
 			try:
-				if not is_gitfile(decrypt_path):
-					data=encrypt_bytes(key,data)
+				data=encrypt_bytes(key,data)
 			except Exception as error:
 				error='FAILED (error encrypting)'+':\n\t'+str(error)
 				fails.append((decrypt_path,error))
@@ -676,8 +668,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 			#Decrypt source
 			try:
-				if not is_gitfile(decrypt_path):
-					data=decrypt_bytes(key,data)
+				data=decrypt_bytes(key,data)
 			except Exception as error:
 				error='FAILED (error decrypting)'+':\n\t'+str(error)
 				fails.append((encrypt_path,error))
