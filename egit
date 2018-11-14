@@ -273,6 +273,39 @@ def confirm(prompt,prefix=''):
 			return False
 		prompt='Type "yes" or "no": '
 
+#Splits a path into tokens (so 'a/b/c' turns into ['a','b','c'])
+def split_path(path):
+	tokens=[path]
+	while True:
+		parent,child=os.path.split(tokens[0])
+		if len(parent)==0 or len(child)==0:
+			break
+		tokens=[parent,child]+tokens[1:]
+	return tokens
+
+#Takes a string file path and returns the encrypted hex string
+def encrypt_fpath(encrypt_dir,key,dec_path):
+	try:
+		enc_path=''
+		for path in split_path(dec_path):
+			hexname=AES256Cipher(key=key).encrypt(path.encode('utf-8')).hex()
+			if len(hexname)%2!=0:
+				hexname='0'+hexname
+			enc_path=os.path.join(enc_path,hexname)
+		return enc_path
+	except Exception:
+		raise Exception('Error encrypting the following file path:\n"%s"'%os.path.join(encrypt_dir,enc_path))
+
+#Takes a hex string and returns the decrypted file path
+def decrypt_fpath(encrypt_dir,key,enc_path):
+	try:
+		dec_path=''
+		for path in split_path(enc_path):
+			dec_path=os.path.join(dec_path,AES256Cipher(key=key).decrypt(bytes.fromhex(path)).decode('utf-8'))
+		return dec_path
+	except Exception:
+		raise Exception('Error decrypting the following file path:\n"%s"'%os.path.join(encrypt_dir,enc_path))
+
 #Recursively find differences in decrypt_dir and encrypt_dir
 def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	ignore_parent_lines={}
@@ -300,8 +333,8 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	#Handle decrypted files
 	for root,subdirs,files in os.walk(decrypt_dir):
 		for file in files:
-			decrypt_path=os.path.join(os.path.join(root,file))
-			encrypt_path=decrypt_path.replace(decrypt_dir,encrypt_dir,1)
+			decrypt_path=os.path.join(root,file)
+			encrypt_path=os.path.join(encrypt_dir,encrypt_fpath(encrypt_dir,key,os.path.relpath(decrypt_path,decrypt_dir)))
 
 			#Source isn't a regular file, skip it
 			if not isfile(decrypt_path):
@@ -362,8 +395,8 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	#Handle encrypted files
 	for root,subdirs,files in os.walk(encrypt_dir):
 		for file in files:
-			encrypt_path=os.path.join(os.path.join(root,file))
-			decrypt_path=encrypt_path.replace(encrypt_dir,decrypt_dir,1)
+			encrypt_path=os.path.join(root,file)
+			decrypt_path=os.path.join(decrypt_dir,decrypt_fpath(encrypt_dir,key,os.path.relpath(encrypt_path,encrypt_dir)))
 
 			#Source isn't a regular file, skip it
 			if not isfile(encrypt_path):
@@ -398,7 +431,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 			#Decrypt source
 			try:
-				if not is_gitfile(encrypt_path):
+				if not is_gitfile(decrypt_path):
 					data=decrypt_bytes(key,data)
 			except Exception as error:
 				error='FAILED (error decrypting)'+':\n\t'+str(error)
@@ -467,7 +500,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	for root,subdirs,files in os.walk(decrypt_dir):
 		for file in files:
 			decrypt_path=os.path.join(os.path.join(root,file))
-			encrypt_path=decrypt_path.replace(decrypt_dir,encrypt_dir,1)
+			encrypt_path=os.path.join(encrypt_dir,encrypt_fpath(encrypt_dir,key,os.path.relpath(decrypt_path,decrypt_dir)))
 			data=None
 			ignore_success=False
 
@@ -605,13 +638,13 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	fails=[]
 	for root,subdirs,files in os.walk(encrypt_dir):
 		for file in files:
-			encrypt_path=os.path.join(os.path.join(root,file))
-			decrypt_path=encrypt_path.replace(encrypt_dir,decrypt_dir,1)
+			encrypt_path=os.path.join(root,file)
+			decrypt_path=os.path.join(decrypt_dir,decrypt_fpath(encrypt_dir,key,os.path.relpath(encrypt_path,encrypt_dir)))
 			data=None
 			ignore_success=False
 
 			#Print filename
-			sys.stdout.write('"'+os.path.relpath(encrypt_path)+'"...')
+			sys.stdout.write('"'+os.path.relpath(decrypt_path)+'"...')
 			sys.stdout.flush()
 
 			#Source isn't a regular file, skip it
@@ -643,7 +676,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 			#Decrypt source
 			try:
-				if not is_gitfile(encrypt_path):
+				if not is_gitfile(decrypt_path):
 					data=decrypt_bytes(key,data)
 			except Exception as error:
 				error='FAILED (error decrypting)'+':\n\t'+str(error)
