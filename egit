@@ -102,6 +102,29 @@ def print_green(data):
 def print_orange(data):
 	print('\033[93m'+str(data)+'\033[0m')
 
+#Makes an egit list entry from an fpath (looks up status and returns tuple)
+def make_egit_lists_entry(fpath):
+	stats=os.stat(fpath)
+	return [stats.st_mtime,stats.st_mode]
+
+#Check if the modes of the given paths are the same
+def compare_modes(fpath1,fpath2):
+	return os.stat(fpath1).st_mode==os.stat(fpath2).st_mode
+
+#Checks if the mtime of the given file matches the entry in the given egit list
+#  Returns None when the path is not in the list or True/False otherwise
+def check_egit_list_mtime(lists,path):
+	if path not in lists:
+		return None
+	return lists[path][0]==os.stat(path).st_mtime
+
+#Checks if the mode of the given file matches the entry in the given egit list
+#  Returns None when the path is not in the list or True/False otherwise
+def check_egit_list_mode(lists,path):
+	if path not in lists:
+		return None
+	return lists[path][1]==os.stat(path).st_mode
+
 #Read egit lists file
 def read_egit_lists(git_root,fname):
 	lists={}
@@ -137,7 +160,7 @@ def read_egit_lists(git_root,fname):
 		lineno+=1
 
 		#Rows are: modify_time,file_path
-		if len(row)!=0 and len(row)!=2:
+		if len(row)!=0 and len(row)!=3:
 			raise Exception('Invalid number of elements on line '+str(lineno)+' of "'+fname+'".')
 
 		#Empty line...skip...
@@ -145,7 +168,7 @@ def read_egit_lists(git_root,fname):
 			continue
 
 		#Get absolute path
-		abs_path=os.path.join(git_root,row[1])
+		abs_path=os.path.join(git_root,row[2])
 
 		#Check if path exists (if it doesn't, we don't want to keep it in db)
 		if not isfile(abs_path):
@@ -158,8 +181,15 @@ def read_egit_lists(git_root,fname):
 		except Exception:
 			raise Exception('Invalid time entry on line '+str(lineno)+' of "'+fname+'".')
 
+		#Parse mode entry
+		mode=0
+		try:
+			mode=int(row[1])
+		except Exception:
+			raise Exception('Invalid mode entry on line '+str(lineno)+' of "'+fname+'".')
+
 		#Add entry
-		lists[abs_path]=mtime
+		lists[abs_path]=[mtime,mode]
 
 	#Return a map of fpaths to times
 	return lists
@@ -183,13 +213,13 @@ def write_egit_lists(git_root,fname,lists):
 		csvwriter=csv.writer(csvfile)
 		for key in lists:
 			rel_path=key.replace(os.path.normpath(git_root)+os.sep,'',1)
-			csvwriter.writerow([lists[key],rel_path])
+			csvwriter.writerow([lists[key][0],lists[key][1],rel_path])
 	except Exception as error:
 		raise Exception('Error writing to "'+fname+'":\n\t'+str(error))
 
-#Check egit lists for file change
-def check_egit_lists(lists,path,mtime):
-	return path in lists and lists[path]==mtime
+#Check egit lists for stat changes
+def check_egit_lists(lists,path,stats):
+	return path in lists and lists[path][0]==stats.st_mtime and lists[path][1]==stats.st_mode
 
 #Sha256 wrapper...
 def sha256(data):
@@ -340,18 +370,24 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			if is_ignored(ignores,decrypt_path):
 				continue
 
-			#Check creation and modification times (faster)
+			#Check file stats (faster)
 			try:
 				stats=os.stat(decrypt_path)
 				if not isfile(encrypt_path):
 					new_files.append(decrypt_path)
 					continue
-				if check_egit_lists(lists,decrypt_path,stats.st_mtime):
+				if check_egit_lists(lists,decrypt_path,stats):
 					continue
 			except Exception as error:
 				error='FAILED (error checking stats)'+':\n\t'+str(error)
 				fails.append((decrypt_path,error))
 				print_red(error)
+				continue
+
+			#Check mode
+			if check_egit_list_mode(lists,decrypt_path)==False:
+				if decrypt_path not in diff_files:
+					diff_files.append(decrypt_path)
 				continue
 
 			#Read source file
@@ -375,11 +411,12 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			#Check for differences
 			try:
 				if isfile(encrypt_path):
-					if sha256(data)==sha256(read_file(encrypt_path)):
-						lists[decrypt_path]=os.stat(decrypt_path).st_mtime
-						lists[encrypt_path]=os.stat(encrypt_path).st_mtime
+					if sha256(data)==sha256(read_file(encrypt_path)) and compare_modes(decrypt_path,encrypt_path):
+						lists[decrypt_path]=make_egit_lists_entry(decrypt_path)
+						lists[encrypt_path]=make_egit_lists_entry(encrypt_path)
 						continue
-					diff_files.append(decrypt_path)
+					if decrypt_path not in diff_files:
+						diff_files.append(decrypt_path)
 					continue
 			except Exception as error:
 				error='FAILED (error checking for changes)'+':\n\t'+str(error)
@@ -401,18 +438,24 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			if is_ignored(ignores,encrypt_path):
 				continue
 
-			#Check creation and modification times (faster)
+			#Check file stats (faster)
 			try:
 				stats=os.stat(encrypt_path)
 				if not isfile(decrypt_path):
 					del_files.append(decrypt_path)
 					continue
-				if check_egit_lists(lists,encrypt_path,stats.st_mtime):
+				if check_egit_lists(lists,encrypt_path,stats):
 					continue
 			except Exception as error:
 				error='FAILED (error checking stats)'+':\n\t'+str(error)
 				fails.append((encrypt_path,error))
 				print_red(error)
+				continue
+
+			#Check mode
+			if check_egit_list_mode(lists,encrypt_path)==False:
+				if decrypt_path not in diff_files:
+					diff_files.append(decrypt_path)
 				continue
 
 			#Read source file
@@ -436,11 +479,12 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			#Check for differences
 			try:
 				if isfile(decrypt_path):
-					if sha256(data)==sha256(read_file(decrypt_path)):
-						lists[decrypt_path]=os.stat(decrypt_path).st_mtime
-						lists[encrypt_path]=os.stat(encrypt_path).st_mtime
+					if sha256(data)==sha256(read_file(decrypt_path)) and compare_modes(encrypt_path,decrypt_path):
+						lists[decrypt_path]=make_egit_lists_entry(decrypt_path)
+						lists[encrypt_path]=make_egit_lists_entry(encrypt_path)
 						continue
-					diff_files.append(decrypt_path)
+					if decrypt_path not in diff_files:
+						diff_files.append(decrypt_path)
 					continue
 			except Exception as error:
 				error='FAILED (error checking for changes)'+':\n\t'+str(error)
@@ -510,10 +554,10 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			sys.stdout.write('"'+os.path.relpath(decrypt_path)+'"...')
 			sys.stdout.flush()
 
-			#Check creation and modification times (faster)
+			#Check file stats (faster)
 			try:
 				stats=os.stat(decrypt_path)
-				if isfile(encrypt_path) and check_egit_lists(lists,decrypt_path,stats.st_mtime):
+				if isfile(encrypt_path) and check_egit_lists(lists,decrypt_path,stats) and compare_modes(encrypt_path,decrypt_path):
 					print_orange('Skipping (no stat changes)')
 					num_skipped+=1
 					continue
@@ -538,10 +582,10 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 				if isfile(encrypt_path):
 					wdata=read_file(encrypt_path)
 					wdata=decrypt_bytes(key,wdata)
-					different=sha256(data)!=sha256(wdata)
+					different=sha256(data)!=sha256(wdata) or not compare_modes(encrypt_path,decrypt_path)
 					if not different:
-						lists[decrypt_path]=os.stat(decrypt_path).st_mtime
-						lists[encrypt_path]=os.stat(encrypt_path).st_mtime
+						lists[decrypt_path]=make_egit_lists_entry(decrypt_path)
+						lists[encrypt_path]=make_egit_lists_entry(encrypt_path)
 						print_orange('Skipping (no changes)')
 						num_skipped+=1
 						continue
@@ -597,7 +641,9 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			#Write destination file
 			try:
 				write_file(encrypt_path,data)
-				lists[encrypt_path]=os.stat(encrypt_path).st_mtime
+				os.chmod(encrypt_path,os.stat(decrypt_path).st_mode)
+				lists[decrypt_path]=make_egit_lists_entry(decrypt_path)
+				lists[encrypt_path]=make_egit_lists_entry(encrypt_path)
 			except Exception as error:
 				error='FAILED (error writing)'+':\n\t'+str(error)
 				fails.append((decrypt_path,error))
@@ -647,7 +693,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			#Check creation and modification times (faster)
 			try:
 				stats=os.stat(encrypt_path)
-				if isfile(decrypt_path) and check_egit_lists(lists,encrypt_path,stats.st_mtime):
+				if isfile(decrypt_path) and check_egit_lists(lists,encrypt_path,stats) and compare_modes(decrypt_path,encrypt_path):
 					print_orange('Skipping (no stat changes)')
 					num_skipped+=1
 					continue
@@ -679,10 +725,10 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			different=False
 			try:
 				if isfile(decrypt_path):
-					different=sha256(data)!=sha256(read_file(decrypt_path))
+					different=sha256(data)!=sha256(read_file(decrypt_path)) or not compare_modes(decrypt_path,encrypt_path)
 					if not different:
-						lists[decrypt_path]=os.stat(decrypt_path).st_mtime
-						lists[encrypt_path]=os.stat(encrypt_path).st_mtime
+						lists[decrypt_path]=make_egit_lists_entry(decrypt_path)
+						lists[encrypt_path]=make_egit_lists_entry(encrypt_path)
 						print_orange('Skipping (no changes)')
 						num_skipped+=1
 						continue
@@ -729,8 +775,9 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			#Write destination file
 			try:
 				write_file(decrypt_path,data)
-				lists[decrypt_path]=os.stat(decrypt_path).st_mtime
-				lists[encrypt_path]=os.stat(encrypt_path).st_mtime
+				os.chmod(decrypt_path,os.stat(encrypt_path).st_mode)
+				lists[decrypt_path]=make_egit_lists_entry(decrypt_path)
+				lists[encrypt_path]=make_egit_lists_entry(encrypt_path)
 			except Exception as error:
 				error='FAILED (error writing)'+':\n\t'+str(error)
 				fails.append((encrypt_path,error))
