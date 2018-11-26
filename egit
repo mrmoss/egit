@@ -442,7 +442,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				stats=os.stat(encrypt_path)
 				if not isfile(decrypt_path):
-					del_files.append(decrypt_path)
+					del_files.append((decrypt_path,encrypt_path))
 					continue
 				if check_egit_lists(lists,encrypt_path,stats):
 					continue
@@ -501,8 +501,8 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 	for file in new_files:
 		print_green('\t'+os.path.relpath(file))
 	print(str(len(del_files))+' Deleted Files')
-	for file in del_files:
-		print_red('\t'+os.path.relpath(file))
+	for f1,f2 in del_files:
+		print_red('\t%s (%s)'%(os.path.relpath(f1),os.path.relpath(f2)))
 	print(str(len(diff_files))+' Different Files')
 	for file in diff_files:
 		print_orange('\t'+os.path.relpath(file))
