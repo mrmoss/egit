@@ -49,7 +49,7 @@ If you want to push:
 echo 'we attack at noon' > decrypted/secret.txt
 egit encrypt
 #Your files are now encrypted into /tmp/new_git/encrypted
-git add encrypted/secret.txt
+egit add decrypted/secret.txt
 git commit -m "changes to secret message"
 git push
 ```

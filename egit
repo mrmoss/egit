@@ -803,17 +803,64 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 		for line in ('"'+os.path.relpath(fail[0])+'" - '+fail[1]).split('\n'):
 			print_red('\t'+line)
 
+#Takes arguments for a git command and runs them.
+#  Note 0: Takes all args not starting with a dash and assumes they are files.
+#        This then turns them into encrypted names of the files.
+#  Note 1: This handles '--' by the standard ignore-after convention.
+def handle_git_cmd(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir,mode,args):
+	skip_dashes=True
+	new_args=[]
+	for arg in args:
+
+		#Handle args starting with dashes (if dashes are on)
+		if skip_dashes:
+			if arg=='--':
+				skip_dashes=False
+			if arg.startswith('-'):
+				new_args.append(arg)
+				continue
+
+		#Get absolute decrypt path
+		decrypt_path=os.path.abspath(arg)
+
+		#Get encrypted path
+		#  If it's the decrypt directory, just use the encrypted directory
+		encrypt_path=encrypt_dir
+		if decrypt_path!=decrypt_dir:
+			encrypt_path=os.path.join(encrypt_dir,encrypt_fpath(encrypt_dir,key,os.path.relpath(decrypt_path,decrypt_dir)))
+
+		#Check path exists, if not, error
+		if not os.path.exists(encrypt_path):
+			raise Exception('File "%s" not found.'%arg)
+
+		#Add encrypted path to new arg list
+		new_args.append(encrypt_path)
+
+	#Execute git command
+	os.execvp('git',['git',mode]+new_args)
+
 if __name__=='__main__':
 	try:
+
 		#Validate cli args
-		if len(sys.argv)!=2:
-			print('Usage: '+sys.argv[0]+' encrypt | decrypt | status')
+		modes=['encrypt','decrypt','status','add','rm']
+		if len(sys.argv)<2:
+			print('Usage: %s %s'%(sys.argv[0],' | '.join(modes)))
 			exit(1)
 
 		#Validate mode
 		mode=sys.argv[1]
-		if mode!='encrypt' and mode!='decrypt' and mode!='status':
+		if mode not in modes:
 			raise Exception('Unknown mode.')
+
+		#Validate mode arguments
+		modes_with_args=['add','rm']
+		if mode not in modes_with_args and len(sys.argv)>2:
+			print('Unexpected args.')
+			exit(1)
+		if mode in modes_with_args and len(sys.argv)<3:
+			print('Expected args.')
+			exit(1)
 
 		#Validate egit lists file
 		git_root=find_git_root()
@@ -849,6 +896,8 @@ if __name__=='__main__':
 			decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir)
 		elif mode=='status':
 			status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir)
+		elif mode=='add' or mode=='rm':
+			handle_git_cmd(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir,mode,sys.argv[2:])
 		exit(0)
 
 	#Print errors
