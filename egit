@@ -101,6 +101,9 @@ def print_green(data):
 	print('\033[92m'+str(data)+'\033[0m')
 def print_orange(data):
 	print('\033[93m'+str(data)+'\033[0m')
+def clearline():
+	sys.stdout.write('\33[2K\r')
+	sys.stdout.flush()
 
 #Makes an egit list entry from an fpath (looks up status and returns tuple)
 def make_egit_lists_entry(fpath):
@@ -558,7 +561,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				stats=os.stat(decrypt_path)
 				if isfile(encrypt_path) and check_egit_lists(lists,decrypt_path,stats) and compare_modes(encrypt_path,decrypt_path):
-					print_orange('Skipping (no stat changes)')
+					clearline() #print_orange('Skipping (no stat changes)')
 					num_skipped+=1
 					continue
 			except Exception as error:
@@ -586,7 +589,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 					if not different:
 						lists[decrypt_path]=make_egit_lists_entry(decrypt_path)
 						lists[encrypt_path]=make_egit_lists_entry(encrypt_path)
-						print_orange('Skipping (no changes)')
+						clearline() #print_orange('Skipping (no changes)')
 						num_skipped+=1
 						continue
 			except Exception as error:
@@ -694,7 +697,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				stats=os.stat(encrypt_path)
 				if isfile(decrypt_path) and check_egit_lists(lists,encrypt_path,stats) and compare_modes(decrypt_path,encrypt_path):
-					print_orange('Skipping (no stat changes)')
+					clearline() #print_orange('Skipping (no stat changes)')
 					num_skipped+=1
 					continue
 			except Exception as error:
@@ -729,7 +732,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 					if not different:
 						lists[decrypt_path]=make_egit_lists_entry(decrypt_path)
 						lists[encrypt_path]=make_egit_lists_entry(encrypt_path)
-						print_orange('Skipping (no changes)')
+						clearline() #print_orange('Skipping (no changes)')
 						num_skipped+=1
 						continue
 			except Exception as error:
