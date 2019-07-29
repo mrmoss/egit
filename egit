@@ -11,27 +11,23 @@
 #		./egit status
 import csv
 import errno
+import fcntl
 import getpass
 import glob
 import hashlib
 import os
+import struct
 import sys
+import termios
 from Crypto.Cipher import AES
 from Crypto import Random
-
-import fcntl
-import math
-import readline
-import struct
-import termios
-import time
 
 #Create random encrypt file
 def encrypt_randfile(key,filename):
 	try:
 		write_file(filename,encrypt_bytes(key,Random.get_random_bytes(32)))
 	except Exception:
-		raise Exception('Error encrypting "'+os.path.relpath(filename)+'".')
+		raise Exception('Error encrypting "%s".'%os.path.relpath(filename))
 
 #Create random decrypt file
 def decrypt_randfile(key,filename):
@@ -60,12 +56,12 @@ def read_gitignore(path):
 		ignores=[]
 		for line in lines:
 			line=line.strip()
-			if len(line)==0 or line[0]=='#':
+			if not line or line[0]=='#':
 				continue
 			ignores.append(line)
 		return ignores
 	except Exception:
-		raise Exception('Couldn\'t read .gitignore "'+path+'".')
+		raise Exception('Couldn\'t read .gitignore "%s".'%path)
 
 #Returns all files affected by a .gitignore file
 def glob_gitignore(ignore_parent_lines,global_root,path):
@@ -106,7 +102,7 @@ global_print_noln_last_line=0
 def print_noln(data):
 	global global_print_noln_last_line
 	(rows,cols)=struct.unpack('hh',fcntl.ioctl(sys.stdout,termios.TIOCGWINSZ,'0000'))
-	global_print_noln_last_line=max(0,(len(data)-2)//cols)
+	global_print_noln_last_line=max(0,(len(data)-1)//cols)
 	sys.stdout.write(data)
 	sys.stdout.flush()
 def print_ln(data):
@@ -114,11 +110,11 @@ def print_ln(data):
 	global_print_noln_last_line=0
 	print(data)
 def print_red(data):
-	print_ln('\033[91m'+str(data)+'\033[0m')
+	print_ln('\033[91m%s\033[0m'%data)
 def print_green(data):
-	print_ln('\033[92m'+str(data)+'\033[0m')
+	print_ln('\033[92m%s\033[0m'%data)
 def print_orange(data):
-	print_ln('\033[93m'+str(data)+'\033[0m')
+	print_ln('\033[93m%s\033[0m'%data)
 def clearline():
 	global global_print_noln_last_line
 	sys.stdout.write('\033[2K\033[1A'*global_print_noln_last_line+'\033[2K\r')
@@ -157,25 +153,25 @@ def read_egit_lists(git_root,fname):
 		if not os.path.exists(fname):
 			return lists
 	except Exception:
-		raise Exception('Error reading stats "'+fname+'".')
+		raise Exception('Error reading stats "%s".'%fname)
 
 	#Not a file, raise Exception
 	if not isfile(fname):
-		raise Exception('"'+fname+'" is not a regular file.')
+		raise Exception('"%s" is not a regular file.'%fname)
 
 	#Open file
 	csvfile=None
 	try:
 		csvfile=open(fname,'r')
 	except Exception:
-		raise Exception('Could not open "'+fname+'" for reading.')
+		raise Exception('Could not open "%s" for reading.'%fname)
 
 	#Parse csv
 	csvreader=None
 	try:
 		csvreader=csv.reader(csvfile)
 	except Exception:
-		raise Exception('"'+fname+'" is not a csv file.')
+		raise Exception('"%s" is not a csv file.'%fname)
 
 	#Get entries
 	lineno=0
@@ -183,11 +179,11 @@ def read_egit_lists(git_root,fname):
 		lineno+=1
 
 		#Rows are: modify_time,file_path
-		if len(row)!=0 and len(row)!=3:
-			raise Exception('Invalid number of elements on line '+str(lineno)+' of "'+fname+'".')
+		if row and len(row)!=3:
+			raise Exception('Invalid number of elements on line %d of "%s".'%(lineno,fname))
 
 		#Empty line...skip...
-		if len(row)==0:
+		if not row:
 			continue
 
 		#Get absolute path
@@ -202,14 +198,14 @@ def read_egit_lists(git_root,fname):
 		try:
 			mtime=float(row[0])
 		except Exception:
-			raise Exception('Invalid time entry on line '+str(lineno)+' of "'+fname+'".')
+			raise Exception('Invalid time entry on line %d of "%s".'%(lineno,fname))
 
 		#Parse mode entry
 		mode=0
 		try:
 			mode=int(row[1])
 		except Exception:
-			raise Exception('Invalid mode entry on line '+str(lineno)+' of "'+fname+'".')
+			raise Exception('Invalid mode entry on line %d of "%s".'%(lineno,fname))
 
 		#Add entry
 		lists[abs_path]=[mtime,mode]
@@ -222,14 +218,14 @@ def write_egit_lists(git_root,fname,lists):
 
 	#Not a file, raise Exception
 	if os.path.exists(fname) and not isfile(fname):
-		raise Exception('"'+fname+'" is not a regular file.')
+		raise Exception('"%s" is not a regular file.'%fname)
 
 	#Open file
 	csvfile=None
 	try:
 		csvfile=open(fname,'w')
 	except Exception:
-		raise Exception('Could not open "'+fname+'" for writing.')
+		raise Exception('Could not open "%s" for writing.'%fname)
 
 	#Write csv
 	try:
@@ -238,7 +234,7 @@ def write_egit_lists(git_root,fname,lists):
 			rel_path=key.replace(os.path.normpath(git_root)+os.sep,'',1)
 			csvwriter.writerow([lists[key][0],lists[key][1],rel_path])
 	except Exception as error:
-		raise Exception('Error writing to "'+fname+'":\n\t'+str(error))
+		raise Exception('Error writing to "%s":\n\t%s'%(fname,error))
 
 #Check egit lists for stat changes
 def check_egit_lists(lists,path,stats):
@@ -249,7 +245,7 @@ def sha256(data):
 	return hashlib.sha256(data).digest()
 
 #https://stackoverflow.com/questions/12524994/encrypt-decrypt-using-pycrypto-aes-256
-class AES256Cipher(object):
+class AES256Cipher():
 	def __init__(self,key):
 		self.bs=32
 		self.key=hashlib.sha256(key.encode()).digest()
@@ -258,10 +254,11 @@ class AES256Cipher(object):
 	#	iv_16b | sha256(key)_32b | data
 	#	iv is the first 16 bytes of the sha256(data)
 	#		Note: This might seem insecure...
-	#			  But it with git checking in mind, this means that data that's encrypted will have the same hash....
+	#			  But it with git checking in mind, this means that encrypted data will
+	#			  have the same hash when it is encrypted.
 	def encrypt(self,data):
 		iv=sha256(data)[:AES.block_size]
-		data=self.pad_m(self.key+data)
+		data=AES_pad(self.key+data)
 		cipher=AES.new(self.key,AES.MODE_CBC,iv)
 		return iv+cipher.encrypt(data)
 
@@ -271,18 +268,18 @@ class AES256Cipher(object):
 		iv=data[:AES.block_size]
 		cipher=AES.new(self.key,AES.MODE_CBC,iv)
 		data=cipher.decrypt(data[AES.block_size:])
-		data=self.unpad_m(data)
+		data=AES_unpad(data)
 		if data[:len(self.key)]!=self.key:
 			raise Exception('Bad Decrypt')
 		return data[len(self.key):]
 
-	def pad_m(self,data):
-		pad_len=AES.block_size-(len(data)%AES.block_size)
-		return data+bytes([pad_len])*pad_len
+def AES_pad(data):
+	pad_len=AES.block_size-(len(data)%AES.block_size)
+	return data+bytes([pad_len])*pad_len
 
-	def unpad_m(self,data):
-		pad_len=int(data[-1])
-		return data[:len(data)-pad_len]
+def AES_unpad(data):
+	pad_len=int(data[-1])
+	return data[:len(data)-pad_len]
 
 #Encrypts bytes with key
 def encrypt_bytes(key,data):
@@ -315,7 +312,7 @@ def remove_file(path):
 #Prompt user for yes/no (prefix is added to prompts...)
 def confirm(prompt,prefix=''):
 	while True:
-		ans=input('\033[93m'+prefix+prompt+'\033[0m').strip()
+		ans=input('\033[93m%s%s\033[0m'%(prefix,prompt)).strip()
 		if ans=='yes':
 			return True
 		if ans=='no':
@@ -327,7 +324,7 @@ def split_path(path):
 	tokens=[path]
 	while True:
 		parent,child=os.path.split(tokens[0])
-		if len(parent)==0 or len(child)==0:
+		if not parent or not child:
 			break
 		tokens=[parent,child]+tokens[1:]
 	return tokens
@@ -339,7 +336,7 @@ def encrypt_fpath(encrypt_dir,key,dec_path):
 		for path in split_path(dec_path):
 			hexname=AES256Cipher(key=key).encrypt(path.encode('utf-8')).hex()
 			if len(hexname)%2!=0:
-				hexname='0'+hexname
+				hexname='0%s'%hexname
 			enc_path=os.path.join(enc_path,hexname)
 		return enc_path
 	except Exception:
@@ -374,7 +371,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 					ignores+=new_ignores
 
 			except Exception as error:
-				error='Error handling "'+path+'")'+':\n\t'+str(error)
+				error='Error handling "%s":\n\t%s'%(path,error)
 				fails.append((path,error))
 				print_red(error)
 				return
@@ -402,13 +399,13 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 				if check_egit_lists(lists,decrypt_path,stats):
 					continue
 			except Exception as error:
-				error='FAILED (error checking stats)'+':\n\t'+str(error)
+				error='FAILED (error checking stats):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
 
 			#Check mode
-			if check_egit_list_mode(lists,decrypt_path)==False:
+			if not check_egit_list_mode(lists,decrypt_path):
 				if decrypt_path not in diff_files:
 					diff_files.append(decrypt_path)
 				continue
@@ -417,7 +414,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				data=read_file(decrypt_path)
 			except Exception as error:
-				error='FAILED (error reading)'+':\n\t'+str(error)
+				error='FAILED (error reading):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -426,7 +423,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				data=encrypt_bytes(key,data)
 			except Exception as error:
-				error='FAILED (error encrypting)'+':\n\t'+str(error)
+				error='FAILED (error encrypting):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -442,7 +439,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 						diff_files.append(decrypt_path)
 					continue
 			except Exception as error:
-				error='FAILED (error checking for changes)'+':\n\t'+str(error)
+				error='FAILED (error checking for changes):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -470,13 +467,13 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 				if check_egit_lists(lists,encrypt_path,stats):
 					continue
 			except Exception as error:
-				error='FAILED (error checking stats)'+':\n\t'+str(error)
+				error='FAILED (error checking stats):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
 
 			#Check mode
-			if check_egit_list_mode(lists,encrypt_path)==False:
+			if not check_egit_list_mode(lists,encrypt_path):
 				if decrypt_path not in diff_files:
 					diff_files.append(decrypt_path)
 				continue
@@ -485,7 +482,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				data=read_file(encrypt_path)
 			except Exception as error:
-				error='FAILED (error reading)'+':\n\t'+str(error)
+				error='FAILED (error reading):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -494,7 +491,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				data=decrypt_bytes(key,data)
 			except Exception as error:
-				error='FAILED (error decrypting)'+':\n\t'+str(error)
+				error='FAILED (error decrypting):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -510,7 +507,7 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 						diff_files.append(decrypt_path)
 					continue
 			except Exception as error:
-				error='FAILED (error checking for changes)'+':\n\t'+str(error)
+				error='FAILED (error checking for changes):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -520,19 +517,19 @@ def status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 	#Print Stats
 	print_ln('')
-	print_ln(str(len(new_files))+' New Files')
+	print_ln('%d New Files'%len(new_files))
 	for file in new_files:
-		print_green('\t'+os.path.relpath(file))
-	print_ln(str(len(del_files))+' Deleted Files')
+		print_green('\t%s'%os.path.relpath(file))
+	print_ln('%d Deleted Files'%len(del_files))
 	for f1,f2 in del_files:
 		print_red('\t%s (%s)'%(os.path.relpath(f1),os.path.relpath(f2)))
-	print_ln(str(len(diff_files))+' Different Files')
+	print_ln('%d Different Files'%len(diff_files))
 	for file in diff_files:
-		print_orange('\t'+os.path.relpath(file))
-	print_ln(str(len(fails))+' Fails')
+		print_orange('\t%s'%os.path.relpath(file))
+	print_ln('%d Fails'%len(fails))
 	for fail in fails:
-		for line in ('"'+os.path.relpath(fail[0])+'" - '+fail[1]).split('\n'):
-			print_red('\t'+line)
+		for line in ('"%s" - %s'%(os.path.relpath(fail[0]),fail[1])).split('\n'):
+			print_red('\t%s'%line)
 
 #Recursively encrypt files in decrypt_dir into encrypt_dir (won't overwrite with confirmation)
 def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
@@ -552,7 +549,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 					ignores+=new_ignores
 
 			except Exception as error:
-				error='Error handling "'+path+'")'+':\n\t'+str(error)
+				error='Error handling "%s":\n\t%s'%(path,error)
 				fails.append((path,error))
 				print_red(error)
 				return
@@ -574,7 +571,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 				continue
 
 			#Print filename
-			print_noln('"'+os.path.relpath(decrypt_path)+'"...')
+			print_noln('"%s"...'%os.path.relpath(decrypt_path))
 
 			#Check file stats (faster)
 			try:
@@ -585,7 +582,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 					num_skipped+=1
 					continue
 			except Exception as error:
-				error='FAILED (error checking stats)'+':\n\t'+str(error)
+				error='FAILED (error checking stats):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -594,7 +591,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				data=read_file(decrypt_path)
 			except Exception as error:
-				error='FAILED (error reading)'+':\n\t'+str(error)
+				error='FAILED (error reading):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -614,7 +611,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 						num_skipped+=1
 						continue
 			except Exception as error:
-				error='FAILED (error checking for changes)'+':\n\t'+str(error)
+				error='FAILED (error checking for changes):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -624,13 +621,13 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 				if isfile(encrypt_path) and different:
 					print_red('exists')
 					if not confirm('Destination file exists and is different, overwrite? (yes/no): ','\t'):
-						print_orange('\tSkipped "'+encrypt_path+'"')
+						print_orange('\tSkipped "%s"'%encrypt_path)
 						num_skipped+=1
 						continue
-					print_orange('\tOverwrote "'+encrypt_path+'"')
+					print_orange('\tOverwrote "%s"'%encrypt_path)
 					ignore_success=True
 			except Exception as error:
-				error='FAILED (error reading encrypted copy)'+':\n\t'+str(error)
+				error='FAILED (error reading encrypted copy):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -639,7 +636,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				data=encrypt_bytes(key,data)
 			except Exception as error:
-				error='FAILED (error encrypting)'+':\n\t'+str(error)
+				error='FAILED (error encrypting):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -648,7 +645,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				remove_file(encrypt_path)
 			except Exception as error:
-				error='FAILED (error deleting encrypted copy)'+':\n\t'+str(error)
+				error='FAILED (error deleting encrypted copy):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -657,7 +654,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				os.makedirs(os.path.dirname(encrypt_path),exist_ok=True)
 			except Exception as error:
-				error='FAILED (error making parents)'+':\n\t'+str(error)
+				error='FAILED (error making parents):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -669,7 +666,7 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 				lists[decrypt_path]=make_egit_lists_entry(decrypt_path)
 				lists[encrypt_path]=make_egit_lists_entry(encrypt_path)
 			except Exception as error:
-				error='FAILED (error writing)'+':\n\t'+str(error)
+				error='FAILED (error writing):\n\t%s'%error
 				fails.append((decrypt_path,error))
 				print_red(error)
 				continue
@@ -684,14 +681,14 @@ def encrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 	#Print Stats
 	print_ln('')
-	print_green(str(num_encrypted)+' Encrypted')
-	print_orange(str(num_skipped)+' Skipped')
+	print_green('%d Encrypted'%num_encrypted)
+	print_orange('%d Skipped'%num_skipped)
 
 	#Print Fails
-	print_red(str(len(fails))+' Fails')
+	print_red('%d Fails'%len(fails))
 	for fail in fails:
-		for line in ('"'+os.path.relpath(fail[0])+'" - '+fail[1]).split('\n'):
-			print_red('\t'+line)
+		for line in ('"%s" - %s'%(os.path.relpath(fail[0]),fail[1])).split('\n'):
+			print_red('\t%s'%line)
 
 #Recursively decrypt files in encrypt_dir into decrypt_dir (won't overwrite with confirmation)
 def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
@@ -706,7 +703,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			ignore_success=False
 
 			#Print filename
-			print_noln('"'+os.path.relpath(decrypt_path)+'"...')
+			print_noln('"%s"...'%os.path.relpath(decrypt_path))
 
 			#Source isn't a regular file, skip it
 			if not isfile(encrypt_path):
@@ -722,7 +719,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 					num_skipped+=1
 					continue
 			except Exception as error:
-				error='FAILED (error checking stats)'+':\n\t'+str(error)
+				error='FAILED (error checking stats):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -731,7 +728,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				data=read_file(encrypt_path)
 			except Exception as error:
-				error='FAILED (error reading)'+':\n\t'+str(error)
+				error='FAILED (error reading):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -740,7 +737,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				data=decrypt_bytes(key,data)
 			except Exception as error:
-				error='FAILED (error decrypting)'+':\n\t'+str(error)
+				error='FAILED (error decrypting):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -758,7 +755,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 						num_skipped+=1
 						continue
 			except Exception as error:
-				error='FAILED (error checking for changes)'+':\n\t'+str(error)
+				error='FAILED (error checking for changes):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -768,13 +765,13 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 				if isfile(decrypt_path) and different:
 					print_red('exists')
 					if not confirm('Destination file exists and is different, overwrite? (yes/no): ','\t'):
-						print_orange('\tSkipped "'+decrypt_path+'"')
+						print_orange('\tSkipped "%s"'%decrypt_path)
 						num_skipped+=1
 						continue
-					print_orange('\tOverwrote "'+decrypt_path+'"')
+					print_orange('\tOverwrote "%s"'%decrypt_path)
 					ignore_success=True
 			except Exception as error:
-				error='FAILED (error reading decrypted copy)'+':\n\t'+str(error)
+				error='FAILED (error reading decrypted copy):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -783,7 +780,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				remove_file(decrypt_path)
 			except Exception as error:
-				error='FAILED (error deleting decrypted copy)'+':\n\t'+str(error)
+				error='FAILED (error deleting decrypted copy):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -792,7 +789,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 			try:
 				os.makedirs(os.path.dirname(decrypt_path),exist_ok=True)
 			except Exception as error:
-				error='FAILED (error making parents)'+':\n\t'+str(error)
+				error='FAILED (error making parents):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -804,7 +801,7 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 				lists[decrypt_path]=make_egit_lists_entry(decrypt_path)
 				lists[encrypt_path]=make_egit_lists_entry(encrypt_path)
 			except Exception as error:
-				error='FAILED (error writing)'+':\n\t'+str(error)
+				error='FAILED (error writing):\n\t%s'%error
 				fails.append((encrypt_path,error))
 				print_red(error)
 				continue
@@ -819,14 +816,14 @@ def decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir):
 
 	#Print Stats
 	print_ln('')
-	print_green(str(num_decrypted)+' Decrypted')
-	print_orange(str(num_skipped)+' Skipped')
+	print_green('%d Decrypted'%num_decrypted)
+	print_orange('%d Skipped'%num_skipped)
 
 	#Print Fails
-	print_red(str(len(fails))+' Fails')
+	print_red('%d Fails'%len(fails))
 	for fail in fails:
-		for line in ('"'+os.path.relpath(fail[0])+'" - '+fail[1]).split('\n'):
-			print_red('\t'+line)
+		for line in ('"%s" - %s'%(os.path.relpath(fail[0]),fail[1])).split('\n'):
+			print_red('\t%s'%line)
 
 #Takes arguments for a git command and runs them.
 #  Note 0: Takes all args not starting with a dash and assumes they are files.
@@ -864,7 +861,7 @@ def handle_git_cmd(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir,mode,ar
 	#Execute git command
 	os.execvp('git',['git',mode]+new_args)
 
-if __name__=='__main__':
+def main():
 	try:
 
 		#Validate cli args
@@ -896,9 +893,9 @@ if __name__=='__main__':
 		decrypt_dir=os.path.join(git_root,'decrypted')
 		encrypt_dir=os.path.join(git_root,'encrypted')
 		if not os.path.isdir(decrypt_dir):
-			raise Exception('"'+decrypt_dir+'" is not a directory.')
+			raise Exception('"%s" is not a directory.'%decrypt_dir)
 		if not os.path.isdir(encrypt_dir) and os.path.exists(encrypt_dir):
-			raise Exception('"'+encrypt_dir+'" is not a directory.')
+			raise Exception('"%s" is not a directory.'%encrypt_dir)
 
 		#Get password
 		key=getpass.getpass('Password: ')
@@ -921,7 +918,7 @@ if __name__=='__main__':
 			decrypt_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir)
 		elif mode=='status':
 			status_files(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir)
-		elif mode=='add' or mode=='rm':
+		elif mode in ('add','rm'):
 			handle_git_cmd(git_root,lists_path,lists,key,decrypt_dir,encrypt_dir,mode,sys.argv[2:])
 		exit(0)
 
@@ -933,3 +930,6 @@ if __name__=='__main__':
 	#Kill
 	except KeyboardInterrupt:
 		exit(1)
+
+if __name__=='__main__':
+	main()
